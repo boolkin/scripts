@@ -1,0 +1,76 @@
+USE [AOM]
+GO
+/****** Object:  Trigger [dbo].[turbines]    Script Date: 18.02.2024 6:44:48 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER TRIGGER [dbo].[turbines] ON [dbo].[raw_data]
+   AFTER INSERT
+AS
+DECLARE @data AS varbinary(max)
+DECLARE @dataprev AS varbinary(max)
+DECLARE @cell_1 AS REAL
+DECLARE @cell_1prev AS REAL
+DECLARE @tag1data AS binary(4)
+DECLARE @cell_1byte AS tinyint
+DECLARE @cell_1bytePrev AS tinyint
+DECLARE @cell_2 AS REAL
+DECLARE @cell_2prev AS REAL
+DECLARE @tag2data AS binary(4)
+DECLARE @cell_2byte AS tinyint
+DECLARE @cell_2bytePrev AS tinyint
+DECLARE @ID_record AS INT
+
+
+SET @ID_record = (SELECT id from inserted)
+Set @data = (SELECT data from inserted)
+Set @dataprev = (select data from raw_data  where id = @ID_record-1)
+
+/*берем 4 байта с начиная с первого из всего массива и переворачиваем их чтобы шли в обратном порядке*/
+Set @tag1data = cast(reverse(substring(@data,5,4)) as binary(4))
+/*конвертируем в формат реал*/ 
+set @cell_1 = SIGN(CAST(@tag1data AS INT))
+		* (1.0 + (CAST(@tag1data AS INT) &  0x007FFFFF) * POWER(CAST(2 AS REAL), -23))
+		* POWER(CAST(2 AS REAL), (CAST(@tag1data AS INT) & 0x7f800000) / 0x00800000 - 127)
+Set @tag2data = cast(reverse(substring(@data,17,4)) as binary(4))
+/*конвертируем в формат реал*/ 
+set @cell_2 = SIGN(CAST(@tag2data AS INT))
+		* (1.0 + (CAST(@tag2data AS INT) &  0x007FFFFF) * POWER(CAST(2 AS REAL), -23))
+		* POWER(CAST(2 AS REAL), (CAST(@tag2data AS INT) & 0x7f800000) / 0x00800000 - 127)
+
+update raw_data set cell_1 = @cell_1, cell_2 = @cell_2 from inserted where raw_data.id = inserted.id
+
+Set @cell_1prev = (select cell_1 from raw_data  where id = @ID_record-1)
+Set @cell_2prev = (select cell_2 from raw_data  where id = @ID_record-1)
+Set @cell_1byte = (select(CONVERT(int, @cell_1)))
+Set @cell_2byte = (select(CONVERT(int, @cell_2)))
+Set @cell_1bytePrev = (select(CONVERT(int, @cell_1prev)))
+Set @cell_2bytePrev = (select(CONVERT(int, @cell_2prev)))
+
+IF @cell_1bytePrev <> @cell_1byte 
+	BEGIN
+	/*отключение*/
+	IF @cell_1bytePrev | @cell_1byte=@cell_1bytePrev AND @cell_1byte <> 0
+		BEGIN
+			INSERT INTO Turb_out (DateTime,TurbOn,TurbOff,Cell01_stat,Cell02_stat,cell_text) VALUES (GETDATE(), 0,@cell_1bytePrev-@cell_1byte, @cell_1byte, @cell_2byte,'C1_')
+		END
+	/*включение*/
+	IF @cell_1bytePrev | @cell_1byte=@cell_1byte AND @cell_1bytePrev <> 0
+		BEGIN
+			INSERT INTO Turb_out (DateTime,TurbOn,TurbOff,Cell01_stat,Cell02_stat,cell_text) VALUES (GETDATE(), @cell_1byte-@cell_1bytePrev,0, @cell_1byte, @cell_2byte,'C1_')
+		END
+	END
+IF @cell_2bytePrev <> @cell_2byte 
+	BEGIN
+	/*отключение*/
+	IF @cell_2bytePrev | @cell_2byte=@cell_2bytePrev AND @cell_2byte <> 0
+		BEGIN
+			INSERT INTO Turb_out (DateTime,TurbOn,TurbOff,Cell01_stat,Cell02_stat,cell_text) VALUES (GETDATE(), 0, @cell_2bytePrev-@cell_2byte, @cell_1byte, @cell_2byte,'C2_')
+		END
+	/*включение*/
+	IF @cell_2bytePrev | @cell_2byte=@cell_2byte AND @cell_2bytePrev <> 0
+		BEGIN
+			INSERT INTO Turb_out (DateTime,TurbOn,TurbOff,Cell01_stat,Cell02_stat,cell_text) VALUES (GETDATE(), @cell_2byte-@cell_2bytePrev, 0, @cell_1byte, @cell_2byte,'C2_')
+		END
+	END

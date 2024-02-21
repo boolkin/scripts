@@ -1,0 +1,45 @@
+USE [AOM]
+GO
+/****** Object:  Trigger [dbo].[rename]    Script Date: 18.02.2024 6:45:16 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER TRIGGER [dbo].[rename] ON [dbo].[Turb_out]
+   AFTER INSERT
+AS
+
+DECLARE @turb_numb AS tinyint
+DECLARE @turb_text AS varchar(10)
+DECLARE @turboff AS bit
+DECLARE @celltext AS varchar(10)
+
+SET @turb_numb = (SELECT TurbOn from inserted)
+SET @celltext = (SELECT cell_text from inserted)
+
+IF @turb_numb = 0	
+	BEGIN
+		SET @turb_numb = (SELECT TurbOff from inserted)
+		SET @turboff = 1
+	END
+
+
+SET @turb_text = CASE @turb_numb
+        WHEN 1 THEN 'EDB'
+        WHEN 2 THEN 'EDT'
+        WHEN 4 THEN 'EPB'
+        WHEN 8 THEN 'EPT'
+		WHEN 16 THEN 'XDB'
+        WHEN 32 THEN 'XDT'
+		WHEN 64 THEN 'XPB'
+        WHEN 128 THEN 'XPT'
+	END
+
+IF  @turboff = 1
+	BEGIN
+		UPDATE Turb_out set TurbineOFF = CONCAT (@celltext,@turb_text) from inserted where Turb_out.DateTime = inserted.DateTime
+	END
+ELSE
+	BEGIN
+		UPDATE Turb_out set TurbineON = CONCAT (@celltext,@turb_text) from inserted where Turb_out.DateTime = inserted.DateTime
+	END

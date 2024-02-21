@@ -1,0 +1,67 @@
+USE [AOM]
+GO
+/****** Object:  Trigger [dbo].[unscale]    Script Date: 18.02.2024 6:43:26 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER TRIGGER [dbo].[unscale] ON [dbo].[raw_data]
+   AFTER INSERT
+AS
+DECLARE @data AS varbinary(max)
+DECLARE @dataprev AS varbinary(max)
+DECLARE @ID_record AS INT
+DECLARE @CellDown1 as bit
+DECLARE @CellDown2 as bit
+DECLARE @CRMTrue as bit
+DECLARE @CRMTruePrev as bit
+DECLARE @CellDown1prev as bit
+DECLARE @CellDown2prev as bit
+DECLARE @Prev_downtime_bit AS BIT
+DECLARE @Downtime_bit AS BIT
+DECLARE @Downtime_Stopdur AS Datetime
+DECLARE @Downtime_Start AS Datetime
+DECLARE @check_time AS INT
+
+SET @ID_record = (SELECT id from inserted)
+Set @data = (SELECT data from inserted)
+Set @dataprev = (select data from raw_data  where id = @ID_record-1)
+
+
+SET @CellDown1 = cast (substring(@data,12,1) & 1 as bit) /*#1 bit of byte 12*/
+SET @CellDown2 = cast (substring(@data,16,1) & 1 as bit) /*#1 bit of byte 16*/
+SET @CRMTrue = cast (substring(@data,24,1) & 1 as bit) /*#1 bit of byte 16*/
+
+SET @CellDown1prev = cast (substring(@dataprev,12,1) & 1 as bit) /*#1 bit of byte 12*/
+SET @CellDown2prev = cast (substring(@dataprev,16,1) & 1 as bit) /*#1 bit of byte 16*/
+SET @CRMTruePrev = cast (substring(@dataprev,24,1) & 1 as bit) /*#1 bit of byte 16*/
+
+IF  @CellDown1=1 and @CellDown2=1 SET @Downtime_bit = 0 ELSE SET @Downtime_bit = 1
+IF  @CellDown1prev=1 and @CellDown2prev=1 SET @Prev_downtime_bit = 0 ELSE SET @Prev_downtime_bit = 1
+
+IF @Prev_downtime_bit=0 AND @Downtime_bit=1 AND @CRMTrue=1
+	BEGIN
+		INSERT INTO aom_down (Downtime_start) VALUES (DATEADD(minute,-10,GETDATE()))
+	END
+
+IF @Prev_downtime_bit=1 AND @Downtime_bit=0 AND @CRMTruePrev=1
+	BEGIN
+		SET @Downtime_Start = (SELECT MAX(Downtime_start) FROM aom_down)
+		SET @Downtime_Stopdur = (GETDATE()- @Downtime_Start)
+		IF @Downtime_Stopdur > '0:00:01'
+		BEGIN
+			UPDATE aom_down SET Downtime_stop = GETDATE(), Downtime_dur = GETDATE() - @Downtime_Start where Downtime_start = @Downtime_Start
+		END
+		ELSE
+		BEGIN
+			DELETE FROM aom_down WHERE Downtime_start = @Downtime_Start
+		END
+
+		IF @Downtime_Stopdur > '23:59:59' UPDATE aom_down SET Day_Stop = DATEDIFF (dd,@Downtime_Start,GETDATE()) where Downtime_start = @Downtime_Start
+		
+	END
+SET @check_time = (SELECT @ID_record % 20000)
+IF @check_time = 0
+	BEGIN
+	delete FROM [AOM].[dbo].[raw_data] WHERE dtm < DATEADD(day, -3, GETDATE())
+	END

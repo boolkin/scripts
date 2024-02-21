@@ -1,0 +1,1 @@
+wmic /user:user /password:test /node:"192.168.159.182" process call create "C:\2.bat"

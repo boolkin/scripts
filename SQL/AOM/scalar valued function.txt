@@ -1,0 +1,53 @@
+USE [AOM]
+GO
+/****** Object:  UserDefinedFunction [dbo].[TurbineOutMinutes]    Script Date: 18.02.2024 6:46:01 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		<Author,,Name>
+-- Create date: <Create Date, ,>
+-- Description:	<Description, ,>
+-- =============================================
+ALTER FUNCTION [dbo].[TurbineOutMinutes]
+(
+	@turbname AS varchar(8)
+)
+RETURNS numeric(10,0)
+AS
+BEGIN
+	-- Declare the return variable here
+	DECLARE @Summ numeric(10,0)
+
+	DECLARE @dt AS Datetime
+	DECLARE @dt2 AS Datetime
+	DECLARE @mindiff AS int
+	DECLARE @numboff AS int
+
+	SET @numboff = 1
+	SET @dt = (SELECT MIN([DateTime]) FROM [AOM].[dbo].[Turb_out]  Where TurbineON =  @turbname)
+	SET @mindiff = (SELECT DATEDIFF( minute, 
+	(SELECT MIN([DateTime]) FROM [AOM].[dbo].[Turb_out]  Where TurbineOFF =  @turbname), 
+	@dt))
+	WHILE @dt < (SELECT MAX([DateTime]) FROM [AOM].[dbo].[Turb_out]  Where TurbineON =  @turbname)
+	BEGIN 
+		SET @numboff = @numboff+ 1
+		SET @dt2 = (SELECT MIN([DateTime]) FROM [AOM].[dbo].[Turb_out]  Where TurbineON = @turbname AND [DateTime]> @dt)
+		SET @mindiff = @mindiff + (SELECT DATEDIFF( minute, 
+		(SELECT MIN([DateTime]) FROM [AOM].[dbo].[Turb_out] Where TurbineOFF =  @turbname AND [DateTime]> @dt), (@dt2))) 
+		IF (@dt2) = (SELECT MAX([DateTime]) FROM [AOM].[dbo].[Turb_out]  Where TurbineON = @turbname)
+		  BREAK  
+	    ELSE  
+		BEGIN
+			SET @dt = @dt2
+			CONTINUE  
+		END 
+	END  
+	-- Add the T-SQL statements to compute the return value here
+	SELECT @Summ = @mindiff
+
+	-- Return the result of the function
+	RETURN @Summ
+
+END
